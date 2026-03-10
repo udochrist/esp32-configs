@@ -443,7 +443,7 @@ text_sensor:
 
   #  Creates a sensor of the uptime of the device, in formatted days, hours, minutes and seconds
   - platform: uptime
-    id: uptime
+    id: uptime_sensor
     name: "Uptime"
     entity_category: diagnostic
     icon: mdi:clock-start
