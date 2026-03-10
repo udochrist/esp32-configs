@@ -1,12 +1,18 @@
 substitutions:
-  name: "athom-co2-sensor"
-  friendly_name: "Athom C02 Sensor"
-  # Allows ESP device to be automatically lined to an 'Area' in Home Assistant. Typically used for areas such as 'Lounge Room', 'Kitchen' etc
+  # Default name
+  name: "athom-1gang-switch"
+  # Default friendly name   
+  friendly_name: "1Gang Switch"
+  # Allows ESP device to be automatically linked to an 'Area' in Home Assistant. Typically used for areas such as 'Lounge Room', 'Kitchen' etc  
   room: ""
-  device_description: "athom scd40 CO₂ sensor"
-  project_name: "China Athom Technology.CO₂ Sensor"
-  project_version: "1.0.7"
-  update_interval: 5s
+  # Description as appears in ESPHome & top of webserver page
+  device_description: "athom esp32-c3 1gang switch"
+  # Project Name
+  project_name: "China Athom Technology.1Gang Switch"
+  # Projection version denotes the release version of the yaml file, allowing checking of deployed vs latest version
+  project_version: "v3.0.1"
+  # Restore the relay (GPO switch) upon reboot to state:
+  light_restore_mode: RESTORE_DEFAULT_OFF
   # Define a domain for this device to use. i.e. iot.home.lan (so device will appear as athom-smart-plug-v2.iot.home.lan in DNS/DHCP logs)
   dns_domain: ".local"
   # Set timezone of the smart plug. Useful if the plug is in a location different to the HA server. Can be entered in unix Country/Area format (i.e. "Australia/Sydney")
@@ -23,36 +29,44 @@ substitutions:
   log_level: "DEBUG"
   # Enable or disable the use of IPv6 networking on the device
   ipv6_enable: "false"
-
-#############################ESP32C3###########################
-  sht40_sda_pin: GPIO10
-  sht40_scl_pin: GPIO8
-  button_pin:    GPIO9
-  led_pin:       GPIO21
-#############################ESP32C3###########################
+########################## End of Substitutions #########################
 
 esphome:
   name: "${name}"
   friendly_name: "${friendly_name}"
   comment: "${device_description}"
-  area: "${room}"
+  area: "${room}"  
   name_add_mac_suffix: true
   min_version: 2025.7.0
   project:
     name: "${project_name}"
     version: "${project_version}"
   platformio_options:
+    board_build.mcu: esp32c3
+    board_build.variant: esp32c3
     board_build.flash_mode: dio
   on_boot:
-    priority: 800
-    then:
-      - if:
-          condition:
-            wifi.connected:
-          then:
-            - light.turn_off: led
-          else:
-            - script.execute: wifi_rgb_loop
+    - priority: 600
+      then:
+        - select.set_index:
+            id: power_mode
+            index: !lambda |-
+                    return id(restore_mode)-1;
+        - lambda: |-
+              switch(id(restore_mode))
+              {
+              case 1:{
+                      id(light1).turn_off();
+                      break;
+                            }
+              case 2:{
+                      id(light1).turn_on();
+                      break;
+                            }
+              default:{
+                      break;
+                            }
+              }
 
 esp32:
   board: esp32-c3-devkitm-1
@@ -69,6 +83,9 @@ esp32:
       CONFIG_BT_BLE_50_FEATURES_SUPPORTED: y
       # Extend the watchdog timeout, so the device reboots if the device appears locked up for over 10 seconds.
       CONFIG_ESP_TASK_WDT_TIMEOUT_S: "10"
+
+preferences:
+  flash_write_interval: 1min
 
 api:
   # reboot_timeout: 0s
@@ -98,13 +115,17 @@ mdns:
 
 web_server:
   port: 80
+#  version: 3
 
 network:
   enable_ipv6: ${ipv6_enable}
 
 wifi:
+  # This spawns an AP with the device name and mac address with no password.
   ap: {}
+  # Allow rapid re-connection to previously connect WiFi SSID, skipping scan of all SSID
   fast_connect: "${wifi_fast_connect}"
+  # Define dns domain / suffix to add to hostname
   domain: "${dns_domain}"
 
 captive_portal:
@@ -126,36 +147,57 @@ bluetooth_proxy:
   active: true
 
 dashboard_import:
-  package_import_url: github://athom-tech/esp32-configs/athom-scd40-sensor.yaml
+  package_import_url: github://athom-tech/esp32-configs/athom-1gang-switch.yaml
 
-i2c:
-  sda: "$sht40_sda_pin"
-  scl: "$sht40_scl_pin"
-  scan: true
-  id: bus_a
+globals:
+  - id: restore_mode
+    type: int
+    restore_value: yes
+    initial_value: "3"
 
-# Example configuration entry
+select:
+  - platform: template
+    name: "Power On State"
+    id: "power_mode"
+    optimistic: true
+    options:
+      - Always Off
+      - Always On
+      - Restore Power Off State
+    on_value:
+      then:
+        - lambda: |-
+            id(restore_mode)=i+1;
+
+binary_sensor:
+  - platform: status
+    name: "Status"
+    icon: mdi:check-network-outline
+    entity_category: diagnostic    
+
+  #Button
+  - platform: gpio
+    pin:
+      inverted: true
+      number: GPIO20
+      mode:
+        input: true
+        pullup: true
+    name: "Button"
+    id: button1
+    disabled_by_default: true
+    on_multi_click:
+      - timing:
+          - ON for at most 0.5s
+          - OFF for at least 0.2s
+        then:
+          - light.toggle: light1
+      - timing:
+          - ON for at least 4s
+        then:
+          - button.press: Reset
+
 sensor:
-  - platform: scd4x
-    update_interval: ${update_interval}
-    co2:
-      name: "CO2"
-      id: "co2"
-      on_value:
-        if:
-          condition:
-            switch.is_on: status_light
-          then:
-            - script.execute: update_aqi
-    temperature:
-      name: "Temperature"
-      id: "temperature"
-      disabled_by_default: true
-    humidity:
-      name: "Humidity"
-      id: "humidity"
-      disabled_by_default: true
-
   - platform: uptime
     name: "Uptime Sensor"
     id: uptime_sensor
@@ -178,23 +220,6 @@ sensor:
     entity_category: "diagnostic"
     device_class: ""
 
-binary_sensor:
-  - platform: status
-    name: "Status"
-    entity_category: diagnostic
-
-  - platform: gpio
-    pin:
-      number: "$button_pin"
-      mode: INPUT_PULLUP
-      inverted: true
-    name: "Power Button"
-    disabled_by_default: true
-    on_multi_click:
-      - timing:
-        - ON for at least 4s
-        then:
-          - button.press: Reset
 button:
   - platform: restart
     name: "Restart"
@@ -210,54 +235,67 @@ button:
     internal: false
     entity_category: config
 
-light:
-  - platform: esp32_rmt_led_strip
-    rgb_order: GRB
-    pin: "$led_pin"
-    num_leds: 1
-    chipset: ws2812
-    restore_mode: RESTORE_DEFAULT_OFF
-    name: "Light"
-    id: "led"
+output:
+  # Relay
+  - platform: gpio
+    pin: GPIO5
+    id: relay1
+  # Button LED
+  - platform: ledc
+    pin: GPIO3
+    inverted: true
+    id: button_led1
 
-switch:
-  - platform: template
-    name: "Status Light"
-    id: status_light
-    entity_category: config
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_OFF
+light:
+  - platform: status_led
+    name: "Status LED"
+    id: red_led
+    icon: mdi:lightbulb-outline
+    disabled_by_default: true
+    pin:
+      inverted: true
+      number: GPIO9
+  # Relay
+  - platform: binary
+    name: "Light"
+    id: light1
+    output: relay1
+    restore_mode: ${light_restore_mode}
     on_turn_on:
-      - light.turn_on: led
+      - light.turn_on: led1
     on_turn_off:
-      - light.turn_off: led
+      - light.turn_off: led1
+
+  # Button LED
+  - platform: monochromatic
+    name: "LED"
+    disabled_by_default: true
+    id: led1
+    output: button_led1
+    default_transition_length: 500ms
 
 text_sensor:
   - platform: wifi_info
     ip_address:
       name: "IP Address"
-      id: ip_address
+      icon: mdi:ip-network
       entity_category: diagnostic
     ssid:
       name: "Connected SSID"
-      id: ssid
+      icon: mdi:wifi-strength-2
       entity_category: diagnostic
     mac_address:
       name: "Mac Address"
-      id: mac_address
+      icon: mdi:network-pos
       entity_category: diagnostic
 
+  #  Creates a sensor showing when the device was last restarted
   - platform: template
-    name: "Last Restart"
+    name: 'Last Restart'
     id: device_last_restart
     icon: mdi:clock
     entity_category: diagnostic
-    device_class: timestamp
-
-  - platform: template
-    name: "Air Quality Index"
-    id: aqi
-    icon: mdi:air-filter
+#    device_class: timestamp
 
 time:
   - platform: sntp
@@ -267,10 +305,10 @@ time:
   # Change sync interval from default 5min to 6 hours (or as set in substitutions)
     update_interval: ${sntp_update_interval}
   # Set specific sntp servers to use
-    servers:
+    servers: 
       - "${sntp_server_1}"
       - "${sntp_server_2}"
-      - "${sntp_server_3}"
+      - "${sntp_server_3}"    
   # Publish the time the device was last restarted
     on_time_sync:
       then:
@@ -282,88 +320,3 @@ time:
               - text_sensor.template.publish:
                   id: device_last_restart
                   state: !lambda 'return id(sntp_time).now().strftime("%a %d %b %Y - %I:%M:%S %p");'
-
-script:
-  - id: wifi_rgb_loop
-    mode: restart
-    then:
-      - logger.log: "Wi-Fi disconnected. RGB loop started"
-      - while:
-          condition:
-            not:
-              wifi.connected:
-          then:
-            - light.turn_on:
-                id: led
-                red: 100%
-                green: 0%
-                blue: 0%
-                brightness: 100%
-            - delay: 1s
-
-            - light.turn_on:
-                id: led
-                red: 0%
-                green: 100%
-                blue: 0%
-                brightness: 100%
-            - delay: 1s
-
-            - light.turn_on:
-                id: led
-                red: 0%
-                green: 0%
-                blue: 100%
-                brightness: 100%
-            - delay: 1s
-
-            - light.turn_off: led
-            - delay: 100ms
-
-  - id: update_aqi
-    mode: restart
-    then:
-      - if:
-          condition:
-            or:
-              - sensor.in_range:
-                  id: co2
-                  above: 1500
-          then:
-            - text_sensor.template.publish:
-                id: aqi
-                state: Bad
-            - light.turn_on:
-                id: led
-                brightness: 100%
-                red: 100%
-                green: 0%
-                blue: 0%
-          else:
-            - if:
-                condition:
-                  or:
-                    - sensor.in_range:
-                        id: co2
-                        above: 800
-                        below: 1500
-                then:
-                  - text_sensor.template.publish:
-                      id: aqi
-                      state: Acceptable
-                  - light.turn_on:
-                      id: led
-                      brightness: 50%
-                      red: 100%
-                      green: 100%
-                      blue: 0%
-                else:
-                  - text_sensor.template.publish:
-                      id: aqi
-                      state: Good
-                  - light.turn_on:
-                      id: led
-                      brightness: 50%
-                      red: 0%
-                      green: 100%
-                      blue: 0%

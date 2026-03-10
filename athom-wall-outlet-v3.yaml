@@ -1,21 +1,21 @@
 substitutions:
   # Default name
-  name: "athom-smart-plug-v3"
+  name: "athom-wall-outlet"
   # Default friendly name   
-  friendly_name: "Athom Plug V3"
+  friendly_name: "Athom Wall Outlet"
   # Allows ESP device to be automatically linked to an 'Area' in Home Assistant. Typically used for areas such as 'Lounge Room', 'Kitchen' etc  
   room: ""
   # Description as appears in ESPHome & top of webserver page
-  device_description: "athom esp32-c3 power monitoring smart plug"
+  device_description: "athom esp32-c3 power monitoring wall outlet"
   # Project Name
-  project_name: "China Athom Technology.Smart Plug V3"
+  project_name: "China Athom Technology.Athom Wall Outlet V3"
   # Projection version denotes the release version of the yaml file, allowing checking of deployed vs latest version
-  project_version: "v2.0.1"
+  project_version: "v3.0.1"
   # Restore the relay (GPO switch) upon reboot to state:
-  relay_restore_mode: RESTORE_DEFAULT_ON
+  relay_restore_mode: RESTORE_DEFAULT_OFF
   # Set the update interval for sensors
   sensor_update_interval: 10s
-  # Current Limit in Amps. AU Plug = 10. IL, BR, EU, UK, US Plug = 16.
+  # Current Limit in Amps. AU, IL, BR, EU, UK, US Plug = 16.
   current_limit : "16"
   # Define a domain for this device to use. i.e. iot.home.lan (so device will appear as athom-smart-plug-v2.iot.home.lan in DNS/DHCP logs)
   dns_domain: ".local"
@@ -76,7 +76,6 @@ esphome:
                       break;
                             }
               }
-
 
 esp32:
   board: esp32-c3-devkitm-1
@@ -157,7 +156,7 @@ bluetooth_proxy:
   active: true
 
 dashboard_import:
-  package_import_url: github://athom-tech/esp32-configs/athom-smart-plug.yaml
+  package_import_url: github://athom-tech/esp32-configs/athom-wall-outlet-v3.yaml
 
 uart:
   rx_pin: GPIO20
@@ -347,12 +346,15 @@ switch:
     id: relay
     restore_mode: ${relay_restore_mode}
     icon: mdi:${power_plug_type}
+    on_turn_on:
+      - light.turn_on: red_led
+    on_turn_off:
+      - light.turn_off: red_led
 
 light:
   - platform: status_led
     name: "Status LED"
-    id: blue_led
-    icon: mdi:lightbulb-outline
+    id: red_led
     disabled_by_default: true
     pin:
       inverted: true
